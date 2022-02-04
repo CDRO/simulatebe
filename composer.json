@@ -28,10 +28,6 @@
 			"Cabag\\Simulatebe\\": "Classes/"
 		}
 	},
-	"replace": {
-		"simulatebe": "self.version",
-		"typo3-ter/simulatebe": "self.version"
-	},
 	"extra": {
 		"typo3/cms": {
 			"extension-key": "simulatebe"
