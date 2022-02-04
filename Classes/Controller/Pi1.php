@@ -155,7 +155,6 @@ class Pi1 extends AbstractUserAuthentication {
 					// The be-session gets the same id and hashlock as the current fe-session. Don't know if this is usefull but..
 				$insertFields = array(
 						'ses_id' => $GLOBALS['TSFE']->fe_user->user['ses_id'],
-						'ses_name' => $be_user_obj->name,
 						'ses_iplock' => $this->beuser['disableIPlock'] ?
 							'[DISABLED]' : $be_user_obj->ipLockClause_remoteIPNumber($be_user_obj->lockIP),
 						'ses_userid' => $this->beuser[$be_user_obj->userid_column],
@@ -164,6 +163,7 @@ class Pi1 extends AbstractUserAuthentication {
 
                 if (version_compare(TYPO3_branch, '8', '<')) {
                     $insertFields['ses_hashlock'] = $GLOBALS['TSFE']->fe_user->user['ses_hashlock'];
+                    $insertFields['ses_name']     = $be_user_obj->name;
                 }
 
 					// CAB - check if there already is an entry first
