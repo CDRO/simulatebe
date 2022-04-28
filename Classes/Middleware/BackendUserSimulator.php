@@ -50,7 +50,7 @@ class BackendUserSimulator implements MiddlewareInterface
             return $handler->handle($request);
         }
 
-        // the login can be activated using a query paramter
+        // the login can be activated using a query parameter
         // if that parameter is not given then, no backend user should be simulated
         $hasLinkParameterInRequest = (bool)$request->getQueryParams()[$this->configuration->getLinkParameterName()];
         if ($this->configuration->getOnLinkParameter() && !$hasLinkParameterInRequest) {
