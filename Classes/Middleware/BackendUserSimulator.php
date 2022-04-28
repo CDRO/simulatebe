@@ -8,6 +8,8 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Psr\Log\LoggerAwareInterface;
+use Psr\Log\LoggerAwareTrait;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Core\Environment;
@@ -18,9 +20,12 @@ use TYPO3\CMS\Core\Session\SessionManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
 use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
+use TYPO3\CMS\Frontend\Middleware\BackendUserAuthenticator;
 
-class BackendUserSimulator implements MiddlewareInterface
+class BackendUserSimulator implements LoggerAwareInterface, MiddlewareInterface
 {
+    use LoggerAwareTrait;
+
     /**
      * @var TypoScriptFrontendController
      */
@@ -31,10 +36,16 @@ class BackendUserSimulator implements MiddlewareInterface
      */
     private $configuration;
 
-    public function __construct(TypoScriptFrontendController $typoScriptFrontend = null, Configuration $configuration = null)
+    /**
+     * @var Context
+     */
+    protected $context;
+
+    public function __construct(Context $context, TypoScriptFrontendController $typoScriptFrontend)
     {
-        $this->typoScriptFrontend = $typoScriptFrontend ?? $GLOBALS['TSFE'];
-        $this->configuration = $configuration ?? Configuration::fromGlobals();
+        $this->context = $context;
+        $this->typoScriptFrontend = $typoScriptFrontend;
+        $this->configuration = Configuration::fromGlobals();
     }
 
     /**
@@ -45,9 +56,25 @@ class BackendUserSimulator implements MiddlewareInterface
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
+        $this->logger->debug('simulatebe start');
+
+        $backendCookieName    = BackendUserAuthentication::getCookieName();
+        $simulateBeCookieName = $this->configuration->getCookieName();
+
+        $cookieParams = $request->getCookieParams();
+
         // if no user is logged in than we cannot authenticate any backend user
         if (!$this->isFrontendUserLoggedIn()) {
-            return $handler->handle($request);
+            $this->logger->debug('No frontend user logged in');
+            $response = $handler->handle($request);
+
+            if (isset($cookieParams[$simulateBeCookieName])) {
+                //cookie is set, but there is no frontend user anymore
+                // -> clear the cookie (part of the logout process)
+                $this->logger->debug('Clearing simulatebe cookie');
+                $response = $this->withSessionCookie($response, $this->configuration->getCookieName(), '');
+            }
+            return $response;
         }
 
         // the login can be activated using a query parameter
@@ -57,49 +84,18 @@ class BackendUserSimulator implements MiddlewareInterface
             return $handler->handle($request);
         }
 
-
-        $tempBackendUserAuthentication = GeneralUtility::makeInstance(BackendUserAuthentication::class);
-        $backendCookieName = $tempBackendUserAuthentication->name;
-        $simulateBeCookieName = $this->configuration->getCookieName();
-
-        $cookieParams = $request->getCookieParams();
-
         // Check if the BE user is already logged in.
         // In that case, no more action is needed in this middleware,
-        // because the BackendUserAuthenticator middleware will take over and will login the backend user
-        if ($cookieParams[$backendCookieName]) {
-            // check if frontend user will be logged off
-            // if the backend user is simulated
-            // then the backend user will be logged off as well
-            if (
-                $request->getQueryParams()['logintype'] === 'logout'
-                && $cookieParams[$backendCookieName] === $cookieParams[$simulateBeCookieName]
-            ) {
-                $response = $handler->handle($request);
-
-                if (!$GLOBALS['BE_USER'] instanceof BackendUserAuthentication) {
-                    $GLOBALS['BE_USER'] = GeneralUtility::makeInstance(BackendUserAuthentication::class);
-                    $GLOBALS['BE_USER']->start();
-                }
-
-                $GLOBALS['BE_USER']->logoff();
-
-                $response = new RedirectResponse(
-                    $request->getUri(),
-                    307,
-                    $response->getHeaders()
-                );
-                $response = $this->withSessionCookie($response,$this->configuration->getCookieName(),'');
-                return $response;
-            }
-
+        if ($this->context->getPropertyFromAspect('backend.user', 'isLoggedIn')) {
+            $this->logger->debug('Backend user already logged in');
             return $handler->handle($request);
         }
 
         // if backend user is already simulated
         // then do not try to simulate again
         // otherwise the user cannot log off the backend anymore
-        if ($cookieParams[$this->configuration->getCookieName()]) {
+        if ($cookieParams[$simulateBeCookieName]) {
+            $this->logger->debug('Backend user already simulated');
             return $handler->handle($request);
         }
 
@@ -108,13 +104,14 @@ class BackendUserSimulator implements MiddlewareInterface
         // 2. user is not logged in as backend user yet
 
         $backendUser = $this->getSimulatedBackendUser();
-
         if ($backendUser === null) {
             return $handler->handle($request);
         }
 
         // create session for backend user
         // the backend user will then be initiated by the BackendAuthenticator middleware
+        $this->logger->debug('Create backend user session');
+        $tempBackendUserAuthentication = GeneralUtility::makeInstance(BackendUserAuthentication::class);
         $backendUserSessionId = $tempBackendUserAuthentication->id = $this->typoScriptFrontend->fe_user->id;
         $sessionRecord = $tempBackendUserAuthentication->createUserSession($backendUser);
 
@@ -126,7 +123,11 @@ class BackendUserSimulator implements MiddlewareInterface
 
         $cookieParams[$backendCookieName] = $_COOKIE[$backendCookieName] = $tempBackendUserAuthentication->id;
         $request = $request->withCookieParams($cookieParams);
-        $response = $handler->handle($request);
+
+        //run the BackendUserAuthenticator a second time to let it
+        // properly setup the backend user object
+        $backendUserAuthenticator = GeneralUtility::makeInstance(BackendUserAuthenticator::class);
+        $response = $backendUserAuthenticator->process($request, $handler);
 
         $response = $this->withSessionCookie(
             $response,
@@ -157,7 +158,7 @@ class BackendUserSimulator implements MiddlewareInterface
      *
      * Returns null if the logged in frontend user is not entitled to simulate a backend user.
      *
-     * @return array|null
+     * @return array|null Backend user record
      */
     private function getSimulatedBackendUser(): ?array
     {
@@ -191,8 +192,7 @@ class BackendUserSimulator implements MiddlewareInterface
      */
     private function isFrontendUserLoggedIn(): bool
     {
-        return $this->typoScriptFrontend->fe_user instanceof FrontendUserAuthentication
-            && $this->typoScriptFrontend->fe_user->user !== null;
+        return $this->context->getPropertyFromAspect('frontend.user', 'isLoggedIn');
     }
 
     /**
@@ -222,6 +222,9 @@ class BackendUserSimulator implements MiddlewareInterface
         $headerValue .= $secure ? '; Secure' : '';
         $headerValue .= $httponly ? '; HttpOnly' : '';
         $headerValue .= '; Domain='.$domain;
+        if ($value === '') {
+            $headerValue .= '; expires=Thu, 01-Jan-1970 00:00:01 GMT; Max-Age=0;';
+        }
 
         return $response->withAddedHeader('Set-Cookie', $headerValue);
     }
