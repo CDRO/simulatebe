@@ -62,16 +62,18 @@ class BackendUserSimulator implements MiddlewareInterface
         $backendCookieName = $tempBackendUserAuthentication->name;
         $simulateBeCookieName = $this->configuration->getCookieName();
 
+        $cookieParams = $request->getCookieParams();
+
         // Check if the BE user is already logged in.
         // In that case, no more action is needed in this middleware,
         // because the BackendUserAuthenticator middleware will take over and will login the backend user
-        if ($request->getCookieParams()[$backendCookieName]) {
+        if ($cookieParams[$backendCookieName]) {
             // check if frontend user will be logged off
             // if the backend user is simulated
             // then the backend user will be logged off as well
             if (
                 $request->getQueryParams()['logintype'] === 'logout'
-                && $request->getCookieParams()[$backendCookieName] === $request->getCookieParams()[$simulateBeCookieName]
+                && $cookieParams[$backendCookieName] === $cookieParams[$simulateBeCookieName]
             ) {
                 $response = $handler->handle($request);
 
@@ -97,7 +99,7 @@ class BackendUserSimulator implements MiddlewareInterface
         // if backend user is already simulated
         // then do not try to simulate again
         // otherwise the user cannot log off the backend anymore
-        if ($request->getCookieParams()[$this->configuration->getCookieName()]) {
+        if ($cookieParams[$this->configuration->getCookieName()]) {
             return $handler->handle($request);
         }
 
@@ -122,7 +124,6 @@ class BackendUserSimulator implements MiddlewareInterface
             $sessionBackend->set($backendUserSessionId, $sessionRecord);
         }
 
-        $cookieParams = $request->getCookieParams();
         $cookieParams[$backendCookieName] = $_COOKIE[$backendCookieName] = $tempBackendUserAuthentication->id;
         $request = $request->withCookieParams($cookieParams);
         $response = $handler->handle($request);
