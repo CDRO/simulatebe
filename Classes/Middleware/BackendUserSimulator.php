@@ -2,6 +2,7 @@
 
 namespace Cabag\Simulatebe\Middleware;
 
+use TYPO3\CMS\Core\Exception;
 use Cabag\Simulatebe\Configuration\Configuration;
 use GeorgRinger\News\Domain\Repository\LinkRepository;
 use Psr\Http\Message\ResponseInterface;
@@ -52,7 +53,7 @@ class BackendUserSimulator implements LoggerAwareInterface, MiddlewareInterface
      * @param ServerRequestInterface $request
      * @param RequestHandlerInterface $handler
      * @return ResponseInterface
-     * @throws \TYPO3\CMS\Core\Exception
+     * @throws Exception
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
@@ -201,7 +202,7 @@ class BackendUserSimulator implements LoggerAwareInterface, MiddlewareInterface
      * @param string $value
      * @param string $loginType
      * @return ResponseInterface
-     * @throws \TYPO3\CMS\Core\Exception
+     * @throws Exception
      */
     private function withSessionCookie(ResponseInterface $response, string $name, string $value, $loginType = ''): ResponseInterface
     {
@@ -211,7 +212,7 @@ class BackendUserSimulator implements LoggerAwareInterface, MiddlewareInterface
         $httponly = (bool)$GLOBALS['TYPO3_CONF_VARS']['SYS']['cookieHttpOnly'];
 
         if ($GLOBALS['TYPO3_CONF_VARS']['SYS']['cookieSecure'] && !GeneralUtility::getIndpEnv('TYPO3_SSL')) {
-            throw new \TYPO3\CMS\Core\Exception(
+            throw new Exception(
                 'Cookie was not set since HTTPS was forced in $TYPO3_CONF_VARS[SYS][cookieSecure].',
                 1254325546
             );

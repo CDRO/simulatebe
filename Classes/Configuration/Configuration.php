@@ -2,9 +2,6 @@
 
 namespace Cabag\Simulatebe\Configuration;
 
-use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
-
 class Configuration
 {
     private $onLinkParameter = false;
@@ -22,7 +19,7 @@ class Configuration
 
     public static function fromGlobals(): self
     {
-        $configuration = GeneralUtility::makeInstance(ExtensionConfiguration::class)->get('simulatebe');
+        $configuration = \TYPO3\CMS\Core\Utility\GeneralUtility::makeInstance(\TYPO3\CMS\Core\Configuration\ExtensionConfiguration::class)->get('simulatebe');
 
         return new static(
             (bool)$configuration['simulatebeOnLinkParameter'],
